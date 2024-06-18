@@ -9,7 +9,7 @@ def convertir_pdf_a_imagenes(pdf_path):
     try:
         return convert_from_path(pdf_path)
     except Exception as e:
-        print(f"Error al convertir PDF a imágenes ({pdf_path}): {e}")
+        print(f"Error al convertir PDF a imágenes: {e}")
         return []
 
 # Función para cargar la plantilla limpia desde un PDF
@@ -21,8 +21,8 @@ def cargar_plantilla(plantilla_path):
     plantilla_gray = cv2.cvtColor(plantilla, cv2.COLOR_BGR2GRAY)
     return plantilla_gray
 
-# Función para comparar la plantilla con una imagen escaneada y detectar respuestas marcadas
-def comparar_con_plantilla(plantilla, imagen_escaneada):
+# Función para encontrar coordenadas de respuestas marcadas
+def encontrar_coordenadas_respuestas(plantilla, imagen_escaneada):
     # Convertir la imagen escaneada a escala de grises
     gray = cv2.cvtColor(imagen_escaneada, cv2.COLOR_BGR2GRAY)
     
@@ -37,15 +37,21 @@ def comparar_con_plantilla(plantilla, imagen_escaneada):
     loc = np.where(resultado >= threshold)
     
     # Obtener las coordenadas de las coincidencias encontradas
-    respuestas_marcadas = []
+    coordenadas_respuestas = []
     for pt in zip(*loc[::-1]):
         x, y = pt
-        # Agregar la respuesta marcada basada en la posición dentro de la plantilla (ajustar según la plantilla específica)
-        if 100 < x < 200 and 100 < y < 200:  # Ejemplo de coordenadas, ajustar según tu plantilla
-            respuesta = imagen_escaneada[y, x]  # Obtener el valor del píxel donde está marcada la respuesta
-            respuestas_marcadas.append(respuesta)
+        coordenadas_respuestas.append((x, y))
     
-    return respuestas_marcadas
+    return coordenadas_respuestas
+
+# Función para determinar la respuesta marcada en las coordenadas dadas
+def determinar_respuesta_marcada(imagen_escaneada, x, y):
+    # Aquí debes definir la lógica para determinar qué respuesta fue marcada
+    # Por ejemplo, puedes usar los valores de píxel en las coordenadas (x, y)
+    # y compararlos con valores de referencia para determinar la respuesta.
+    # Esto depende de cómo se vean marcadas las respuestas en tus formularios.
+    # Por simplicidad, aquí se devuelve directamente el valor de píxel en (x, y).
+    return imagen_escaneada[y, x]
 
 # Función principal
 def main():
@@ -76,27 +82,30 @@ def main():
 
     # Iterar sobre los archivos en el directorio de scans
     for filename in os.listdir(scans_dir):
-        file_path = os.path.join(scans_dir, filename)
-        if filename.endswith(".pdf") and os.path.isfile(file_path):
-            # Convertir el PDF escaneado a imagen
-            imagenes_escaneadas = convertir_pdf_a_imagenes(file_path)
+        if filename.endswith(".pdf"):  # Asegurarse de procesar solo archivos PDF
+            # Construir el path completo de la imagen escaneada
+            imagen_escaneada_path = os.path.join(scans_dir, filename)
             
-            if not imagenes_escaneadas:
+            # Convertir el PDF escaneado a imagen
+            imagen_escaneada = convertir_pdf_a_imagenes(imagen_escaneada_path)[0]  # Tomamos solo la primera página
+            
+            if imagen_escaneada is None:
                 continue
             
-            imagen_escaneada = np.array(imagenes_escaneadas[0])  # Tomamos solo la primera página
+            imagen_escaneada = np.array(imagen_escaneada)
             
-            # Comparar la plantilla con la imagen escaneada y detectar respuestas marcadas
-            respuestas_marcadas = comparar_con_plantilla(plantilla, imagen_escaneada)
+            # Encontrar coordenadas de respuestas marcadas
+            coordenadas_respuestas = encontrar_coordenadas_respuestas(plantilla, imagen_escaneada)
             
             # Identificar la pregunta utilizando el nombre del archivo
             pregunta = filename  # Puedes ajustar esto según cómo identifiques las preguntas
             
             # Contar las respuestas marcadas del 1 al 8
             conteo_respuestas = {str(num): 0 for num in numeros_respuesta}
-            for respuesta in respuestas_marcadas:
-                if str(respuesta) in conteo_respuestas:
-                    conteo_respuestas[str(respuesta)] += 1
+            for (x, y) in coordenadas_respuestas:
+                respuesta_marcada = determinar_respuesta_marcada(imagen_escaneada, x, y)
+                if respuesta_marcada and str(respuesta_marcada) in conteo_respuestas:
+                    conteo_respuestas[str(respuesta_marcada)] += 1
             
             # Guardar el conteo de respuestas para la pregunta actual
             respuestas_totales[pregunta] = conteo_respuestas
@@ -121,7 +130,7 @@ def main():
         ws.append(fila)
     
     # Guardar el archivo de Excel
-    resultado_path = os.path.join(os.path.expanduser("~"), "Desktop", "resultados.xlsx")
+    resultado_path = os.path.join(script_dir, "resultados.xlsx")
     wb.save(resultado_path)
     print(f"Resultados guardados en {resultado_path}")
 
