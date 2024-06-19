@@ -3,6 +3,19 @@ import numpy as np
 from pdf2image import convert_from_path
 import cv2
 from openpyxl import Workbook
+import subprocess
+
+# Función para abrir la plantilla limpia con el visor de imágenes predeterminado
+def abrir_visro_plantilla(plantilla_path):
+    try:
+        if os.name == 'posix':  # Para sistemas UNIX (MacOS, Linux)
+            subprocess.call(['open', plantilla_path])
+        elif os.name == 'nt':  # Para sistemas Windows
+            os.startfile(plantilla_path)
+        else:
+            print("No se pudo abrir la plantilla automáticamente. Abre manualmente la plantilla y selecciona el área de respuestas.")
+    except Exception as e:
+        print(f"Error al abrir la plantilla: {e}")
 
 # Función para convertir un PDF a imágenes
 def convertir_pdf_a_imagenes(pdf_path):
@@ -22,10 +35,23 @@ def cargar_plantilla(plantilla_path):
     return plantilla_gray
 
 # Función para seleccionar y guardar el área de búsqueda de respuestas en la plantilla
-def seleccionar_area_respuestas(plantilla, r):
+def seleccionar_area_respuestas(plantilla, plantilla_path):
+    # Abrir la plantilla limpia en el visor de imágenes predeterminado
+    abrir_visro_plantilla(plantilla_path)
+    
+    # Crear una ventana con un nombre específico
+    cv2.namedWindow("Seleccione el área de respuestas", cv2.WINDOW_NORMAL)
+    
+    # Ajustar el tamaño de la ventana para que la imagen se ajuste a la pantalla
+    cv2.resizeWindow("Seleccione el área de respuestas", 800, 600)
+    
+    # Mostrar la plantilla y permitir al usuario dibujar un rectángulo
+    r = cv2.selectROI("Seleccione el área de respuestas", plantilla)
+    cv2.destroyWindow("Seleccione el área de respuestas")
+    
     # Extraer el área seleccionada
     area_respuestas = plantilla[int(r[1]):int(r[1]+r[3]), int(r[0]):int(r[0]+r[2])]
-    return area_respuestas
+    return area_respuestas, r
 
 # Función para comparar el área de respuestas con una imagen escaneada y detectar las respuestas marcadas
 def comparar_area_respuestas(area_respuestas, imagen_escaneada, r):
@@ -55,26 +81,12 @@ def escribir_resultados(datos_leidos):
     ws.title = "Resultados"
     
     # Escribir encabezados
-    encabezados = ["Pregunta"]
-    for i in range(1, 9):
-        encabezados.append(f"Respuesta {i}")
-    ws.append(encabezados)
+    ws.append(["Pregunta", "Respuesta", "Conteo"])
     
     # Escribir los datos de cada pregunta y su conteo de respuestas
-    for pregunta_num in range(1, 34):  # Suponiendo que hay 33 preguntas
-        pregunta = f"Pregunta {pregunta_num}"
-        fila = [pregunta]
-        
-        if pregunta in datos_leidos:
-            respuestas = datos_leidos[pregunta]
-            for i in range(1, 9):  # 8 opciones de respuesta
-                coordenada_respuesta = f"({i}, 0)"  # Se debe ajustar la coordenada adecuadamente
-                if coordenada_respuesta in respuestas:
-                    fila.append(respuestas[coordenada_respuesta])
-                else:
-                    fila.append(0)  # Si no hay respuestas, se pone 0
-        
-        ws.append(fila)
+    for pregunta, respuestas in datos_leidos.items():
+        for respuesta, conteo in respuestas.items():
+            ws.append([pregunta, respuesta, conteo])
     
     # Guardar el archivo de Excel
     resultado_path = "resultados.xlsx"
@@ -96,11 +108,8 @@ def main():
         print(f"Error al cargar la plantilla: {e}")
         return
     
-    # Definir las coordenadas del área de respuestas
-    r = (100, 50, 200, 150)  # Debes proporcionar las coordenadas correctas
-    
     # Seleccionar el área de respuestas en la plantilla
-    area_respuestas = seleccionar_area_respuestas(plantilla, r)
+    area_respuestas, r = seleccionar_area_respuestas(plantilla, plantilla_path)
     
     # Directorio donde están los documentos escaneados
     scans_dir = os.path.join(script_dir, 'scans')
@@ -136,27 +145,22 @@ def main():
             # respuestas_marcadas = [(100, 50), (200, 80), (150, 60), (250, 90)]
             
             # En este ejemplo, se simula el conteo de respuestas para cada pregunta
-            preguntas = {'Pregunta1': {"(1, 0)": 2, "(2, 0)": 5, "(3, 0)": 3},
-                         'Pregunta2': {"(1, 0)": 4, "(2, 0)": 1, "(4, 0)": 2}}
+            preguntas = {'Pregunta1': [(100, 50), (200, 80)],
+                         'Pregunta2': [(150, 60), (250, 90)]}
             
             # Actualizar el diccionario datos_leidos con las respuestas marcadas
-            for pregunta, respuestas in preguntas.items():
+            for pregunta, coords_respuestas in preguntas.items():
                 if pregunta not in datos_leidos:
                     datos_leidos[pregunta] = {}
-                for respuesta, conteo in respuestas.items():
-                    datos_leidos[pregunta][respuesta] = conteo
-    
-    # Reorganizar datos_leidos para mostrar conteo individual de respuestas
-    datos_con_conteo_individual = {}
-    for pregunta, respuestas in datos_leidos.items():
-        datos_con_conteo_individual[pregunta] = {}
-        for respuesta, conteo in respuestas.items():
-            coordenadas_respuesta = respuesta
-            conteo_individual = conteo
-            datos_con_conteo_individual[pregunta][coordenadas_respuesta] = conteo_individual
+                for coord in coords_respuestas:
+                    respuesta = f"({coord[0]}, {coord[1]})"
+                    if respuesta in datos_leidos[pregunta]:
+                        datos_leidos[pregunta][respuesta] += 1
+                    else:
+                        datos_leidos[pregunta][respuesta] = 1
     
     # Escribir los resultados en un archivo Excel
-    escribir_resultados(datos_con_conteo_individual)
+    escribir_resultados(datos_leidos)
 
 if __name__ == "__main__":
     main()
