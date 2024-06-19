@@ -3,19 +3,6 @@ import numpy as np
 from pdf2image import convert_from_path
 import cv2
 from openpyxl import Workbook
-import subprocess
-
-# Función para abrir la plantilla limpia con el visor de imágenes predeterminado
-def abrir_visro_plantilla(plantilla_path):
-    try:
-        if os.name == 'posix':  # Para sistemas UNIX (MacOS, Linux)
-            subprocess.call(['open', plantilla_path])
-        elif os.name == 'nt':  # Para sistemas Windows
-            os.startfile(plantilla_path)
-        else:
-            print("No se pudo abrir la plantilla automáticamente. Abre manualmente la plantilla y selecciona el área de respuestas.")
-    except Exception as e:
-        print(f"Error al abrir la plantilla: {e}")
 
 # Función para convertir un PDF a imágenes
 def convertir_pdf_a_imagenes(pdf_path):
@@ -35,15 +22,13 @@ def cargar_plantilla(plantilla_path):
     return plantilla_gray
 
 # Función para seleccionar y guardar el área de búsqueda de respuestas en la plantilla
-def seleccionar_area_respuestas(plantilla, plantilla_path):
-    # Abrir la plantilla limpia en el visor de imágenes predeterminado
-    abrir_visro_plantilla(plantilla_path)
+def seleccionar_area_respuestas(plantilla):
+    # Obtener el tamaño de la pantalla
+    screen_width, screen_height = 1920, 1080  # Ajustar según el tamaño de tu pantalla
     
-    # Crear una ventana con un nombre específico
+    # Crear una ventana con un nombre específico y ajustar el tamaño para ocupar toda la pantalla
     cv2.namedWindow("Seleccione el área de respuestas", cv2.WINDOW_NORMAL)
-    
-    # Ajustar el tamaño de la ventana para que la imagen se ajuste a la pantalla
-    cv2.resizeWindow("Seleccione el área de respuestas", 800, 600)
+    cv2.resizeWindow("Seleccione el área de respuestas", screen_width, screen_height)
     
     # Mostrar la plantilla y permitir al usuario dibujar un rectángulo
     r = cv2.selectROI("Seleccione el área de respuestas", plantilla)
@@ -53,7 +38,7 @@ def seleccionar_area_respuestas(plantilla, plantilla_path):
     area_respuestas = plantilla[int(r[1]):int(r[1]+r[3]), int(r[0]):int(r[0]+r[2])]
     return area_respuestas, r
 
-# Función para comparar el área de respuestas con una imagen escaneada y detectar las respuestas marcadas
+# Función para comparar el área de respuestas con una imagen escaneada y detectar respuestas marcadas
 def comparar_area_respuestas(area_respuestas, imagen_escaneada, r):
     # Convertir la imagen escaneada a escala de grises
     gray = cv2.cvtColor(imagen_escaneada, cv2.COLOR_BGR2GRAY)
@@ -65,9 +50,25 @@ def comparar_area_respuestas(area_respuestas, imagen_escaneada, r):
     # Aplicar umbralización adaptativa para obtener una imagen binaria
     _, binary_escaneada = cv2.threshold(area_escaneada, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     
-    # Aquí deberías implementar la lógica para comparar el área de respuestas con la imagen escaneada
-    # y detectar las respuestas marcadas. Por simplicidad, dejo un ejemplo simulado.
-    respuestas_marcadas = [(100, 50), (200, 80)]  # Ejemplo simulado de respuestas marcadas
+    # Aplicar detección de coincidencia de plantilla con el área de respuestas de la imagen escaneada
+    try:
+        resultado = cv2.matchTemplate(binary_escaneada, area_respuestas, cv2.TM_CCOEFF_NORMED)
+    except cv2.error as e:
+        print(f"Error en matchTemplate: {e}")
+        return None
+    
+    # Definir umbral de confianza para la detección de coincidencia
+    threshold = 0.8
+    loc = np.where(resultado >= threshold)
+    
+    # Obtener las coordenadas de las coincidencias encontradas
+    if loc[0].size == 0:  # No se encontró ninguna coincidencia
+        return None
+    
+    respuestas_marcadas = []
+    for pt in zip(*loc[::-1]):
+        x, y = pt
+        respuestas_marcadas.append((x, y))
     
     return respuestas_marcadas
 
@@ -109,7 +110,7 @@ def main():
         return
     
     # Seleccionar el área de respuestas en la plantilla
-    area_respuestas, r = seleccionar_area_respuestas(plantilla, plantilla_path)
+    area_respuestas, r = seleccionar_area_respuestas(plantilla)
     
     # Directorio donde están los documentos escaneados
     scans_dir = os.path.join(script_dir, 'scans')
@@ -136,7 +137,7 @@ def main():
             respuestas_marcadas = comparar_area_respuestas(area_respuestas, imagen_escaneada, r)
             
             # Si no se encontraron respuestas marcadas, continuar con el siguiente archivo
-            if not respuestas_marcadas:
+            if respuestas_marcadas is None:
                 print(f"No se encontraron respuestas marcadas en {filename}.")
                 continue
             
